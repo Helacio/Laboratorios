@@ -1,4 +1,4 @@
-/* SQL LABORATORIO 04
+/* SQL LABORATORIO 05
     Felipe Calvache - Hernan Sanchez
 */
 
@@ -33,13 +33,7 @@ CREATE TABLE ESTILOS (
     nombre VARCHAR(7) NOT NULL,
     descripcion VARCHAR(100) NOT NULL
 );
-SELECT * FROM SESSION_PRIVS;
 
-SELECT * FROM ALL_TAB_PRIVS  
-WHERE TABLE_NAME = 'DATA'
-AND GRANTOR = 'MBDA';
-
-SELECT * FROM ALL_TAB_PRIVS WHERE TABLE_NAME='MBDA.DATA';
 CREATE TABLE SePiden (
     nombreProducto VARCHAR(5) NOT NULL,
     numeroFactura NUMBER(5, 0) NOT NULL,
@@ -425,51 +419,54 @@ INSERT INTO FACTURAS VALUES(22121, TO_DATE('2025-02-14', 'YYYY-MM-DD'), TO_DATE(
 
 
 -- CICLO 1: Consultar productos más vendidos
-SELECT SePiden.nombreProducto, Producto.precio, SUM(SePiden.unidades) AS total_unidades_vendidas
+SELECT SePiden.nombreProducto, Productos.precio, SUM(SePiden.unidades) AS total_unidades_vendidas
 FROM SePiden 
-JOIN Productos ON SePiden.nombreProducto = Producto.nombre
-GROUP BY SePiden.nombreProducto, Producto.precio
+JOIN Productos ON SePiden.nombreProducto = Productos.nombre
+GROUP BY SePiden.nombreProducto, Productos.precio
 ORDER BY total_unidades_vendidas DESC;
 
 -- CICLO 1: Consultar los estilos de presentación más populares
 SELECT Clientes.nombre, COUNT(Facturas.numero) AS cantidad_compras
 FROM Clientes
 JOIN Facturas ON Clientes.cedula = Facturas.cedulaComprador
-GROUP BY Cleintes.nombre
+GROUP BY Clientes.nombre
 ORDER BY cantidad_compras DESC;
 
-SELECT *
-FROM MBDA.DATA;
 
-SELECT *
-FROM CLIENTES;
+-- INICIO LAB05
+
+-- C. Modelo físico.
 
 INSERT INTO CLIENTES (cedula, nombre, descuento, direccion, correo)
-SELECT CEDULA, NOMBRE, NVL(DESCUENTO, 0.10), DIRECCION, NVL(EMAIL, CEDULA || '@mananitas.com')
+SELECT CEDULA, NOMBRE, COALESCE(DESCUENTO, 0.10), DIRECCION, COALESCE(EMAIL, CEDULA || '@mananitas.com')
 FROM MBDA.DATA;
 
 
--- CRUDE
+-- COMPONENTES:
 
 -- Paquete Facturas
 
+-- CRUDE
+
 CREATE OR REPLACE PACKAGE PKG_Facturas
 IS
-PROCEDURE adicionarFactura(numero NUMBER(5, 0), fecha DATE, entrega DATE, unidades NUMBER(3, 0), hora CHAR(5), detalle VARCHAR(100),
-    total NUMBER(9, 0), estado CHAR(1), boleta NUMBER(10, 0), nombreEstilo VARCHAR(7),
-    cedulaComprador NUMBER(15, 0), cedulaDestinatario NUMBER(15, 0));
-PROCEDURE consultarFactura(numero NUMBER(5, 0), CFACTURA OUT SYS_REFCURSOR);
+PROCEDURE adicionarFactura(numero NUMBER, fecha DATE, entrega DATE, unidades NUMBER, hora CHAR, detalle VARCHAR,
+    total NUMBER, estado CHAR, boleta NUMBER, nombreEstilo VARCHAR,
+    cedulaComprador NUMBER, cedulaDestinatario NUMBER);
+PROCEDURE consultarFactura(numero NUMBER, CFACTURA OUT SYS_REFCURSOR);
 PROCEDURE consultarProductosMasVendidos(CProdMasVendido OUT SYS_REFCURSOR);
-PROCEDURE consultarEstilosMasPopulares(CEstPopular OUT SYS_REFCURSOR);
+PROCEDURE consultarcomprasbajas(CEstPopular OUT SYS_REFCURSOR);
 PROCEDURE consultarEstilosMayorGanacia(CEstiloMasGanancia OUT SYS_REFCURSOR);
 END;
 
 -- CRUDI
+
 CREATE OR REPLACE PACKAGE BODY PKG_Facturas
 IS
-PROCEDURE adicionarFactura(numero NUMBER(5, 0), fecha DATE, entrega DATE, unidades NUMBER(3, 0), hora CHAR(5), detalle VARCHAR(100),
-    total NUMBER(9, 0), estado CHAR(1), boleta NUMBER(10, 0), nombreEstilo VARCHAR(7),
-    cedulaComprador NUMBER(15, 0), cedulaDestinatario NUMBER(15, 0))
+    -- Adicionar factura
+    PROCEDURE adicionarFactura(numero NUMBER, fecha DATE, entrega DATE, unidades NUMBER, hora CHAR, detalle VARCHAR,
+    total NUMBER, estado CHAR, boleta NUMBER, nombreEstilo VARCHAR,
+    cedulaComprador NUMBER, cedulaDestinatario NUMBER)IS
     BEGIN
         INSERT INTO FACTURAS VALUES (numero, fecha, entrega, unidades, hora, detalle, total, estado, boleta, nombreEstilo,
             cedulaComprador, cedulaDestinatario);
@@ -479,3 +476,235 @@ PROCEDURE adicionarFactura(numero NUMBER(5, 0), fecha DATE, entrega DATE, unidad
             ROLLBACK;
             RAISE_APPLICATION_ERROR(-2050, SQLERRM);
     END adicionarFactura;
+
+    -- Consultar factura
+    PROCEDURE consultarFactura(numero NUMBER, CFACTURA OUT SYS_REFCURSOR) IS
+        v_count NUMBER;
+    BEGIN
+        SELECT COUNT(*)
+        INTO v_count
+        FROM FACTURAS
+        WHERE numero = consultarFactura.numero;
+
+        IF v_count = 0 THEN
+            RAISE_APPLICATION_ERROR(-2051, 'Factura no encontrada');
+        END IF;
+
+        OPEN CFACTURA FOR
+        SELECT numero, fecha, entrega, unidades, hora, detalle, total, estado, boleta, cedulaComprador
+        FROM FACTURAS 
+        WHERE numero = consultarFactura.numero;
+
+    END consultarFactura;
+
+    -- Consultar productos más vendidos
+    PROCEDURE consultarProductosMasVendidos(CProdMasVendido OUT SYS_REFCURSOR) IS
+        v_count NUMBER;
+    BEGIN
+        SELECT COUNT(*) INTO v_count FROM SePiden;
+        IF v_count = 0 THEN
+            RAISE_APPLICATION_ERROR(-2052, 'No hay productos vendidos');
+        END IF;
+
+        OPEN CProdMasVendido FOR
+        SELECT SePiden.nombreProducto, Productos.precio, SUM(SePiden.unidades) AS total_unidades_vendidas
+        FROM SePiden 
+        JOIN Productos ON SePiden.nombreProducto = Productos.nombre
+        GROUP BY SePiden.nombreProducto, Productos.precio
+        ORDER BY total_unidades_vendidas DESC;
+    END consultarProductosMasVendidos;
+
+    --Consultar compras bajas
+    PROCEDURE consultarcomprasbajas(CEstPopular OUT SYS_REFCURSOR) IS
+        v_count NUMBER;
+    BEGIN
+        SELECT COUNT(*) INTO v_count 
+        FROM Clientes JOIN Facturas ON Clientes.cedula = Facturas.cedulaComprador;
+        IF v_count = 0 THEN
+            RAISE_APPLICATION_ERROR(-2053, 'No hay compras registradas');
+        END IF;
+
+        OPEN CEstPopular FOR
+        SELECT Clientes.nombre, COUNT(Facturas.numero) AS cantidad_compras
+        FROM Clientes
+        JOIN Facturas ON Clientes.cedula = Facturas.cedulaComprador
+        GROUP BY Clientes.nombre
+        ORDER BY cantidad_compras DESC;
+    END consultarcomprasbajas;
+
+    -- Consultar estilos con mayor ganancia
+    PROCEDURE consultarEstilosMayorGanacia(CEstiloMasGanancia OUT SYS_REFCURSOR) IS
+        v_count NUMBER;
+    BEGIN
+        SELECT COUNT(*) INTO v_count FROM FACTURAS;
+        IF v_count = 0 THEN
+            RAISE_APPLICATION_ERROR(-2054, 'No hay facturas registradas para estilos');
+        END IF;
+
+        OPEN CEstiloMasGanancia FOR
+        SELECT nombreEstilo, SUM(total) AS total_ganancia
+        FROM FACTURAS
+        GROUP BY nombreEstilo
+        ORDER BY total_ganancia DESC;
+    END consultarEstilosMayorGanacia;
+END;
+
+
+-- XCRUD
+DROP PACKAGE PKG_Facturas;
+
+
+-- CRUD OK
+
+-- 1. Insertar factura valida
+BEGIN
+  PKG_Facturas.adicionarFactura(
+    10001, DATE '2025-05-02', DATE '2025-05-05', 3, '14:00', 'Pedido regular',
+    150000, 'B', 8001001, 'Normal',
+    35515920, 1001064123
+  );
+END;
+
+-- 2. Consultar factura
+VARIABLE rc REFCURSOR;
+EXEC PKG_Facturas.consultarFactura(10001, :rc);
+PRINT rc;
+
+
+-- 3. Consultar productos mas vendidos
+VARIABLE rc REFCURSOR;
+EXEC PKG_Facturas.consultarProductosMasVendidos(:rc);
+PRINT rc;
+
+-- 4. Consultar compras bajas
+VARIABLE rc REFCURSOR;
+EXEC PKG_Facturas.consultarcomprasbajas(:rc);
+PRINT rc;
+
+-- 5. Consultar estilos con mayor ganancia
+VARIABLE rc REFCURSOR;
+EXEC PKG_Facturas.consultarEstilosMayorGanacia(:rc);
+PRINT rc;
+
+
+-- CRUD NO OK
+
+-- 1. Consultar factura inexistente
+VARIABLE rc REFCURSOR;
+EXEC PKG_Facturas.consultarFactura(99999, :rc);
+PRINT rc;
+
+-- 2. Insertar factura duplicada
+BEGIN
+  PKG_Facturas.adicionarFactura(
+    100001, DATE '2025-05-02', DATE '2025-05-05', 3, '14:00', 'Duplicado',
+    150000, 'A', 8001001, 'ST123',
+    1234567890, 9876543210
+  );
+END;
+
+-- 3. Insertar facutra con cedula inexistente (Nofunciona)
+BEGIN
+  PKG_Facturas.adicionarFactura(
+    1002, DATE '2025-05-04', DATE '2025-05-06', 1, '16:00', 'Comprador inexistente',
+    70000, 'A', 8001003, 'ST002',
+    9999999999, 9876543210  -- cédula no registrada
+  );
+END;
+
+
+-- ACTORESE
+
+-- PAQUETE ADMINISTRADOR
+CREATE OR REPLACE PACKAGE PKG_ADMINISTRADOR
+IS
+    PROCEDURE consultarDesayunosAD(CDesayunos OUT SYS_REFCURSOR);
+    PROCEDURE consultarClientesAD(CClientes OUT SYS_REFCURSOR);
+    PROCEDURE consultarProductosAD(CProductos OUT SYS_REFCURSOR);
+END;
+
+-- PAQUETE VENDEDOR
+CREATE OR REPLACE PACKAGE PKG_VENDEDOR
+IS
+    PROCEDURE consultarVentasVE(CVentas OUT SYS_REFCURSOR);
+END;
+
+
+-- ACTORESI
+
+-- (PACKAGE BODY) ADMINISTRADOR
+
+CREATE OR REPLACE PACKAGE BODY PKG_ADMINISTRADOR
+IS
+    PROCEDURE consultarDesayunosAD(CDesayunos OUT SYS_REFCURSOR) IS
+    BEGIN
+        OPEN CDesayunos FOR
+        SELECT nombreProducto, decoracion, personas
+        FROM DESAYUNOS;
+    EXCEPTION
+    WHEN OTHERS THEN
+    ROLLBACK;
+    RAISE_APPLICATION_ERROR(-20084, SQLERRM);
+    END consultarDesayunosAD;
+    
+    PROCEDURE consultarClientesAD(CClientes OUT SYS_REFCURSOR) IS
+    BEGIN
+        OPEN CClientes FOR 
+        SELECT cedula, nombre, descuento, direccion, correo FROM CLIENTES;
+    COMMIT;
+    EXCEPTION
+    WHEN OTHERS THEN
+    ROLLBACK;
+    RAISE_APPLICATION_ERROR(-20085, SQLERRM);
+    END consultarClientesAD;
+    
+    PROCEDURE consultarProductosAD(CProductos OUT SYS_REFCURSOR) IS
+    BEGIN
+        OPEN CProductos FOR 
+        SELECT nombre, precio
+        FROM PRODUCTOS;
+    COMMIT;
+    EXCEPTION
+    WHEN OTHERS THEN
+    ROLLBACK;
+    RAISE_APPLICATION_ERROR(-20086, SQLERRM);
+    END consultarProductosAD;
+END;
+
+-- (PACKAGE BODY) VENDEDOR
+CREATE OR REPLACE PACKAGE  BODY PKG_VENDEDOR
+IS
+    PROCEDURE consultarVentasVE(CVentas OUT SYS_REFCURSOR)IS
+    BEGIN
+        OPEN CVentas FOR SELECT numero, fecha, unidades, hora, detalle, total, cedulaComprador FROM FACTURAS;
+    COMMIT;
+    EXCEPTION
+    WHEN OTHERS THEN
+    ROLLBACK;
+    RAISE_APPLICATION_ERROR(-20089, SQLERRM);
+    END consultarVentasVE;
+END;
+
+
+-- XPACKAGE
+DROP PACKAGE PKG_ADMINISTRADOR;
+DROP PACKAGE PKG_VENDEDOR;
+
+
+-- SEGURIDAD
+
+-- ROLES
+CREATE ROLE ADMINISTRADORES;
+CREATE ROLE VENDEDORES;
+
+-- PERMISOS
+-- ADMINISTRADOR
+GRANT EXECUTE
+ON PKG_ADMINISTRADOR
+TO ADMINISTRADOR;
+
+-- VENDEDOR
+GRANT EXECUTE
+ON PKG_VENDEDOR
+TO VENDEDOR;
+
